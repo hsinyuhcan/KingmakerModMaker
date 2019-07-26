@@ -88,12 +88,12 @@ namespace ModMaker.Utility
             return GetMethodCache<TMethod>(type, name).Info;
         }
 
-        public static TMethod GetMethodDel<T, TMethod>(string name) where TMethod : Delegate
+        public static TMethod GetMethod<T, TMethod>(string name) where TMethod : Delegate
         {
             return GetMethodCache<T, TMethod>(name).Del;
         }
 
-        public static TMethod GetMethodDel<TMethod>(Type type, string name) where TMethod : Delegate
+        public static TMethod GetMethod<TMethod>(Type type, string name) where TMethod : Delegate
         {
             return GetMethodCache<TMethod>(type, name).Del;
         }

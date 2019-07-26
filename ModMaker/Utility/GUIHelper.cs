@@ -39,12 +39,7 @@ namespace ModMaker.Utility
 
         public static void TextField(ref string value, Action onChanged, GUIStyle style = null, params GUILayoutOption[] options)
         {
-            string old = value;
-            TextField(ref value, style, options);
-            if (value != old)
-            {
-                onChanged();
-            }
+            TextField(ref value, null, onChanged, style, options);
         }
 
         public static void TextField(ref string value, Action onClear, Action onChanged, GUIStyle style = null, params GUILayoutOption[] options)
@@ -53,7 +48,7 @@ namespace ModMaker.Utility
             TextField(ref value, style, options);
             if (value != old)
             {
-                if (string.IsNullOrEmpty(value))
+                if (onClear != null && string.IsNullOrEmpty(value))
                     onClear();
                 else
                     onChanged();
@@ -140,8 +135,7 @@ namespace ModMaker.Utility
 
                     foreach (Type type in allTypes)
                     {
-                        bool selected = selectedTypes.Contains(type.FullName);
-                        ToggleButton(ref selected, type.Name.ToSentence(),
+                        ToggleButton(selectedTypes.Contains(type.FullName), type.Name.ToSentence(),
                             () => selectedTypes.Add(type.FullName),
                             () => selectedTypes.Remove(type.FullName),
                             style, options);
