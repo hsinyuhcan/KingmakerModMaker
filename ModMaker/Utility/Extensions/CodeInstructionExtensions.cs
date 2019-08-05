@@ -15,43 +15,92 @@ namespace ModMaker.Utility
 
         public static IEnumerable<CodeInstruction> Dump(this IEnumerable<CodeInstruction> codes, Action<string> print)
         {
+            Dictionary<Label, string> labels = new Dictionary<Label, string>();
+            IEnumerator<CodeInstruction> ie = codes.GetEnumerator();
+            for (int i = 0; ie.MoveNext(); i++)
+                foreach (Label l in ie.Current.labels)
+                    labels[l] = $"L_{i:X4}";
+
             print("==== Begin Dumping Instructions ====");
-            foreach (CodeInstruction code in codes)
-                print($"#{code.labels.FirstOrDefault().GetHashCode():D3}# {code.opcode}, {(code.operand is Label ? ((Label)code.operand).GetHashCode() : code.operand)} ({code.operand?.GetType()})");
+            ie = codes.GetEnumerator();
+            for (int i = 0; ie.MoveNext(); i++)
+                print($"L_{i:X4}: {ie.Current.opcode}" +
+                    (ie.Current.operand == null ? 
+                    string.Empty : $" {(ie.Current.operand is Label l ? labels[l] : ie.Current.operand)}"));
             print("==== End Dumping Instructions ====");
+
             return codes;
         }
 
-        public static IEnumerable<CodeInstruction> AddRange(this IEnumerable<CodeInstruction> codes, IEnumerable<CodeInstruction> newCodes)
+        public static IEnumerable<CodeInstruction> AddRange(this IEnumerable<CodeInstruction> codes, 
+            IEnumerable<CodeInstruction> newCodes)
         {
             return codes.Concat(newCodes);
         }
 
-        public static IEnumerable<CodeInstruction> Insert(this IEnumerable<CodeInstruction> codes, int index, CodeInstruction newCode, bool moveLabelsAtIndex = false)
+        public static IEnumerable<CodeInstruction> Insert(this IEnumerable<CodeInstruction> codes, 
+            int index, CodeInstruction newCode, bool moveLabelsAtIndex = false)
         {
             return codes.InsertRange(index, new CodeInstruction[] { newCode }, moveLabelsAtIndex);
         }
 
-        public static IEnumerable<CodeInstruction> InsertRange(this IEnumerable<CodeInstruction> codes, int index, IEnumerable<CodeInstruction> newCodes, bool moveLabelsAtIndex = false)
+        public static IEnumerable<CodeInstruction> InsertRange(this IEnumerable<CodeInstruction> codes, 
+            int index, IEnumerable<CodeInstruction> newCodes, bool moveLabelsAtIndex = false)
         {
             if (moveLabelsAtIndex)
                 codes.MoveLabels(index, newCodes, 0, newCodes.Where(code => code.operand is Label).Select(code => (Label)code.operand));
             return codes.Take(index).Concat(newCodes).Concat(codes.Skip(index));
         }
 
-        public static IEnumerable<CodeInstruction> RemoveRange(this IEnumerable<CodeInstruction> codes, int index, int count, bool moveLabelsAtIndex = false)
+        public static IEnumerable<CodeInstruction> RemoveRange(this IEnumerable<CodeInstruction> codes, 
+            int index, int count, bool moveLabelsAtIndex = false)
         {
             if (moveLabelsAtIndex)
                 codes.MoveLabels(index, codes, index + count);
             return codes.Take(index).Concat(codes.Skip(index + count));
         }
 
-        public static IEnumerable<CodeInstruction> Replace(this IEnumerable<CodeInstruction> codes, int index, CodeInstruction newCode, bool moveLabelsAtIndex = false)
+        public static IEnumerable<CodeInstruction> Replace(this IEnumerable<CodeInstruction> codes, 
+            int index, CodeInstruction newCode, bool moveLabelsAtIndex = false)
         {
             return codes.ReplaceRange(index, 1, new CodeInstruction[] { newCode }, moveLabelsAtIndex);
         }
 
-        public static IEnumerable<CodeInstruction> ReplaceRange(this IEnumerable<CodeInstruction> codes, int index, int count, IEnumerable<CodeInstruction> newCodes, bool moveLabelsAtIndex = false)
+        public static IEnumerable<CodeInstruction> ReplaceAll(this IEnumerable<CodeInstruction> codes,
+            CodeInstruction findingCode, CodeInstruction newCode,
+            bool moveLabelsAtIndex = false, IEqualityComparer<CodeInstruction> comparer = null)
+        {
+            return codes.ReplaceAll(new CodeInstruction[] { findingCode }, new CodeInstruction[] { newCode }, moveLabelsAtIndex, comparer);
+        }
+
+        public static IEnumerable<CodeInstruction> ReplaceAll(this IEnumerable<CodeInstruction> codes, 
+            IEnumerable<CodeInstruction> findingCodes, IEnumerable<CodeInstruction> newCodes, 
+            bool moveLabelsAtIndex = false, IEqualityComparer<CodeInstruction> comparer = null)
+        {
+            if (comparer == null)
+                comparer = new CodeInstructionMatchComparer();
+            int findingCodesCount = findingCodes.Count();
+            if (findingCodesCount > 0)
+            {
+                int i = codes.Count() - findingCodesCount;
+                while (i >= 0)
+                {
+                    if (codes.MatchCodes(i, findingCodes, comparer))
+                    {
+                        codes = codes.ReplaceRange(i, findingCodesCount, newCodes, moveLabelsAtIndex);
+                        i -= findingCodesCount;
+                    }
+                    else
+                    {
+                        i--;
+                    }
+                }
+            }
+            return codes;
+        }
+
+        public static IEnumerable<CodeInstruction> ReplaceRange(this IEnumerable<CodeInstruction> codes, 
+            int index, int count, IEnumerable<CodeInstruction> newCodes, bool moveLabelsAtIndex = false)
         {
             if (moveLabelsAtIndex)
                 codes.MoveLabels(index, newCodes, 0, newCodes.Where(code => code.operand is Label).Select(code => (Label)code.operand));
@@ -90,25 +139,26 @@ namespace ModMaker.Utility
             labels.AddRange(newLabel);
         }
 
-        public static void MoveLabels(this IEnumerable<CodeInstruction> codes, int index, IEnumerable<CodeInstruction> targetCodes, int targetIndex)
+        public static void MoveLabels(this IEnumerable<CodeInstruction> codes, 
+            int index, IEnumerable<CodeInstruction> targetCodes, int targetIndex)
         {
             List<Label> labels = codes.Item(index).labels;
             targetCodes.MarkLabels(targetIndex, labels);
             labels.Clear();
         }
 
-        public static void MoveLabels(this IEnumerable<CodeInstruction> codes, int index, IEnumerable<CodeInstruction> targetCodes, int targetIndex, IEnumerable<Label> skipLabels)
+        public static void MoveLabels(this IEnumerable<CodeInstruction> codes, 
+            int index, IEnumerable<CodeInstruction> targetCodes, int targetIndex, IEnumerable<Label> skipLabels)
         {
             List<Label> source = codes.Item(index).labels;
             List<Label> target = targetCodes.Item(targetIndex).labels;
-            skipLabels = new HashSet<Label>(skipLabels);
+            HashSet<Label> skip = new HashSet<Label>(skipLabels);
             int i = 0;
             while (i < source.Count)
             {
-                if (skipLabels.Contains(source[i]))
+                if (skip.Contains(source[i]))
                 {
                     i++;
-                    continue;
                 }
                 else
                 {
@@ -134,17 +184,20 @@ namespace ModMaker.Utility
             return codes.FindCodes(findingCodes, new CodeInstructionMatchComparer());
         }
 
-        public static int FindCodes(this IEnumerable<CodeInstruction> codes, int startIndex, IEnumerable<CodeInstruction> findingCodes)
+        public static int FindCodes(this IEnumerable<CodeInstruction> codes, 
+            int startIndex, IEnumerable<CodeInstruction> findingCodes)
         {
             return codes.FindCodes(startIndex, findingCodes, new CodeInstructionMatchComparer());
         }
 
-        public static int FindCodes(this IEnumerable<CodeInstruction> codes, IEnumerable<CodeInstruction> findingCodes, IEqualityComparer<CodeInstruction> comparer)
+        public static int FindCodes(this IEnumerable<CodeInstruction> codes, 
+            IEnumerable<CodeInstruction> findingCodes, IEqualityComparer<CodeInstruction> comparer)
         {
             return codes.FindCodes(0, findingCodes, comparer);
         }
 
-        public static int FindCodes(this IEnumerable<CodeInstruction> codes, int startIndex, IEnumerable<CodeInstruction> findingCodes, IEqualityComparer<CodeInstruction> comparer)
+        public static int FindCodes(this IEnumerable<CodeInstruction> codes, 
+            int startIndex, IEnumerable<CodeInstruction> findingCodes, IEqualityComparer<CodeInstruction> comparer)
         {
             if (findingCodes.Any())
             {
@@ -158,12 +211,14 @@ namespace ModMaker.Utility
             return -1;
         }
 
-        public static int FindLastCodes(this IEnumerable<CodeInstruction> codes, IEnumerable<CodeInstruction> findingCodes)
+        public static int FindLastCodes(this IEnumerable<CodeInstruction> codes, 
+            IEnumerable<CodeInstruction> findingCodes)
         {
             return codes.FindLastCodes(findingCodes, new CodeInstructionMatchComparer());
         }
 
-        public static int FindLastCodes(this IEnumerable<CodeInstruction> codes, IEnumerable<CodeInstruction> findingCodes, IEqualityComparer<CodeInstruction> comparer)
+        public static int FindLastCodes(this IEnumerable<CodeInstruction> codes, 
+            IEnumerable<CodeInstruction> findingCodes, IEqualityComparer<CodeInstruction> comparer)
         {
             if (findingCodes.Any())
             {
@@ -177,12 +232,14 @@ namespace ModMaker.Utility
             return -1;
         }
 
-        public static bool MatchCodes(this IEnumerable<CodeInstruction> codes, int startIndex, IEnumerable<CodeInstruction> matchingCodes)
+        public static bool MatchCodes(this IEnumerable<CodeInstruction> codes, 
+            int startIndex, IEnumerable<CodeInstruction> matchingCodes)
         {
             return codes.MatchCodes(startIndex, matchingCodes, new CodeInstructionMatchComparer());
         }
 
-        public static bool MatchCodes(this IEnumerable<CodeInstruction> codes, int startIndex, IEnumerable<CodeInstruction> matchingCodes, IEqualityComparer<CodeInstruction> comparer)
+        public static bool MatchCodes(this IEnumerable<CodeInstruction> codes, 
+            int startIndex, IEnumerable<CodeInstruction> matchingCodes, IEqualityComparer<CodeInstruction> comparer)
         {
             return codes.Skip(startIndex).Take(matchingCodes.Count()).SequenceEqual(matchingCodes, comparer);
         }
