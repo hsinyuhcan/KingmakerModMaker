@@ -82,19 +82,19 @@ namespace ModMaker
                     Patched = true;
                 }
 
+                Enabled = true;
+
                 Debug($"[{stopWatch.Elapsed:ss\\.ff}] Registering events.");
                 _eventHandler = _assembly.GetTypes().Where(type =>
                     !type.IsInterface && !type.IsAbstract &&
                     type != typeof(TCore) && typeof(IModEventHandler).IsAssignableFrom(type))
                     .Select(type => Activator.CreateInstance(type, true) as IModEventHandler).ToList();
-                if (Core is IModEventHandler core)
-                    _eventHandler.Insert(0, core);
 
                 Debug($"[{stopWatch.Elapsed:ss\\.ff}] Raising events: 'OnEnable'");
+                if (Core is IModEventHandler core)
+                    core.HandleModEnable();
                 foreach (IModEventHandler handler in _eventHandler)
                     handler.HandleModEnable();
-
-                Enabled = true;
             }
             catch (Exception e)
             {
@@ -122,14 +122,13 @@ namespace ModMaker
                 Debug($"[{stopWatch.Elapsed:ss\\.ff}] Raising events: 'OnDisable'");
                 foreach (IModEventHandler handler in _eventHandler)
                 {
-                    try
-                    {
-                        handler.HandleModDisable();
-                    }
-                    catch (Exception e)
-                    {
-                        Error(e);
-                    }
+                    try { handler.HandleModDisable(); }
+                    catch (Exception e) { Error(e); }
+                }
+                if (Core is IModEventHandler core)
+                {
+                    try { core.HandleModDisable(); }
+                    catch (Exception e) { Error(e); }
                 }
                 _eventHandler = null;
             }
@@ -148,14 +147,8 @@ namespace ModMaker
                             $"{patches.First().patch.DeclaringType.DeclaringType?.Name}.{method.DeclaringType.Name}.{method.Name}");
                         foreach (Patch patch in patches)
                         {
-                            try
-                            {
-                                harmonyInstance.Unpatch(method, patch.patch);
-                            }
-                            catch (Exception e)
-                            {
-                                Error(e);
-                            }
+                            try { harmonyInstance.Unpatch(method, patch.patch); }
+                            catch (Exception e) { Error(e); }
                         }
                     }
                 }
