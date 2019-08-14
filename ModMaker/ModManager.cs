@@ -42,6 +42,16 @@ namespace ModMaker
             _assembly = assembly;
         }
 
+        public void ResetSettings()
+        {
+            if (Enabled)
+            {
+                Debug(MethodBase.GetCurrentMethod());
+
+                Settings = new TSettings();
+            }
+        }
+
         #region Toggle
 
         public void Enable(UnityModManager.ModEntry modEntry)
