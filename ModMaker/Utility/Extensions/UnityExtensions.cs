@@ -1,14 +1,30 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
+﻿using UnityEngine;
 
 namespace ModMaker.Utility
 {
     public static class UnityExtensions
     {
-        public static bool IsNullOrDestroyed<T>(this T value)
+        private static void SafeDestroyInternal(GameObject obj)
         {
-            return value == null || ((value is UnityEngine.Object UnityObj) && UnityObj == null);
+            obj.transform.SetParent(null, false);
+            obj.SetActive(false);
+            UnityEngine.Object.Destroy(obj);
+        }
+
+        public static void SafeDestroy(this GameObject obj)
+        {
+            if (obj)
+            {
+                SafeDestroyInternal(obj);
+            }
+        }
+
+        public static void SafeDestroy(this Component obj)
+        {
+            if (obj)
+            {
+                SafeDestroyInternal(obj.gameObject);
+            }
         }
     }
 }
