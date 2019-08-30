@@ -9,6 +9,7 @@
     <Import_RootNamespace>ModMaker</Import_RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)LocalizationManager.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)ModManager.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)MenuManager.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Utility\Extensions\CodeInstructionExtensions.cs" />

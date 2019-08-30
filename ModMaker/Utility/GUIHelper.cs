@@ -32,6 +32,26 @@ namespace ModMaker.Utility
                 value++;
         }
 
+        public static void Hyperlink(string url, Color normalColor, Color hoverColor, GUIStyle style)
+        {
+            Hyperlink(url, url, normalColor, hoverColor, style);
+        }
+
+        public static void Hyperlink(string text, string url, Color normalColor, Color hoverColor, GUIStyle style)
+        {
+            Color color = GUI.color;
+            GUI.color = Color.clear;
+            GUILayout.Label(text, style, GUILayout.ExpandWidth(false));
+            Rect lastRect = GUILayoutUtility.GetLastRect();
+            GUI.color = lastRect.Contains(Event.current.mousePosition) ? hoverColor : normalColor;
+            if (GUI.Button(lastRect, text, style))
+                Application.OpenURL(url);
+            lastRect.y += lastRect.height - 2;
+            lastRect.height = 1;
+            GUI.DrawTexture(lastRect, Texture2D.whiteTexture, ScaleMode.StretchToFill);
+            GUI.color = color;
+        }
+
         public static void TextField(ref string value, GUIStyle style = null, params GUILayoutOption[] options)
         {
             value = GUILayout.TextField(value, style ?? GUI.skin.textField, options);
@@ -170,8 +190,15 @@ namespace ModMaker.Utility
 
         public static float RoundedHorizontalSlider(float value, int digits, float leftValue, float rightValue, params GUILayoutOption[] options)
         {
-            return (float)Math.Round(GUILayout.HorizontalSlider(value, leftValue, rightValue, options), digits);
-
+            if (digits < 0)
+            {
+                float num = (float)Math.Pow(10d, -digits);
+                return (float)Math.Round(GUILayout.HorizontalSlider(value, leftValue, rightValue, options) / num, 0) * num;
+            }
+            else
+            {
+                return (float)Math.Round(GUILayout.HorizontalSlider(value, leftValue, rightValue, options), digits);
+            }
         }
     }
 }

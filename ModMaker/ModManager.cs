@@ -10,6 +10,8 @@ namespace ModMaker
 {
     public interface IModEventHandler
     {
+        int Priority { get; }
+
         void HandleModEnable();
 
         void HandleModDisable();
@@ -22,13 +24,13 @@ namespace ModMaker
         #region Fields & Properties
 
         private UnityModManager.ModEntry.ModLogger _logger;
-        private Assembly _assembly;
-
-        private List<IModEventHandler> _eventHandler;
+        private List<IModEventHandler> _eventHandlers;
 
         public TCore Core { get; private set; }
 
         public TSettings Settings { get; private set; }
+
+        public Version Version { get; private set; }
 
         public bool Enabled { get; private set; }
 
@@ -36,148 +38,143 @@ namespace ModMaker
 
         #endregion
 
-        public ModManager(UnityModManager.ModEntry modEntry, Assembly assembly)
-        {
-            _logger = modEntry.Logger;
-            _assembly = assembly;
-        }
-
-        public void ResetSettings()
-        {
-            if (Enabled)
-            {
-                Debug(MethodBase.GetCurrentMethod());
-
-                Settings = new TSettings();
-            }
-        }
-
         #region Toggle
 
-        public void Enable(UnityModManager.ModEntry modEntry)
+        public void Enable(UnityModManager.ModEntry modEntry, Assembly assembly)
         {
+            _logger = modEntry.Logger;
+
             if (Enabled)
             {
                 Debug("Already enabled.");
                 return;
             }
 
-            Stopwatch stopWatch = new Stopwatch();
-            stopWatch.Start();
-            Debug($"[{stopWatch.Elapsed:ss\\.ff}] Enabling.");
-            
-            try
+            using (ProcessLogger process = new ProcessLogger(_logger))
             {
-                Debug($"[{stopWatch.Elapsed:ss\\.ff}] Loading settings.");
-                Settings = UnityModManager.ModSettings.Load<TSettings>(modEntry);
-                modEntry.OnSaveGUI += HandleSaveGUI;
-
-                // must before patching, because the patching process may call this
-                Core = new TCore();
-
-                if (!Patched)
+                try
                 {
-                    HarmonyInstance harmonyInstance = HarmonyInstance.Create(modEntry.Info.Id);
-                    foreach (Type type in _assembly.GetTypes())
+                    process.Log("Enabling.");
+
+                    process.Log("Loading settings.");
+                    modEntry.OnSaveGUI += HandleSaveGUI;
+                    Version = modEntry.Version;
+                    Settings = UnityModManager.ModSettings.Load<TSettings>(modEntry);
+                    Core = new TCore();
+
+                    Type[] types = assembly.GetTypes();
+
+                    if (!Patched)
                     {
-                        List<HarmonyMethod> harmonyMethods = type.GetHarmonyMethods();
-                        if (harmonyMethods != null && harmonyMethods.Count() > 0)
+                        HarmonyInstance harmonyInstance = HarmonyInstance.Create(modEntry.Info.Id);
+                        foreach (Type type in types)
                         {
-                            Debug($"[{stopWatch.Elapsed:ss\\.ff}] Patching: {type.DeclaringType?.Name}.{type.Name}");
-                            HarmonyMethod attributes = HarmonyMethod.Merge(harmonyMethods);
-                            PatchProcessor patchProcessor = new PatchProcessor(harmonyInstance, type, attributes);
-                            patchProcessor.Patch();
+                            List<HarmonyMethod> harmonyMethods = type.GetHarmonyMethods();
+                            if (harmonyMethods != null && harmonyMethods.Count() > 0)
+                            {
+                                process.Log($"Patching: {type.DeclaringType?.Name}.{type.Name}");
+                                HarmonyMethod attributes = HarmonyMethod.Merge(harmonyMethods);
+                                PatchProcessor patchProcessor = new PatchProcessor(harmonyInstance, type, attributes);
+                                patchProcessor.Patch();
+                            }
                         }
+                        Patched = true;
                     }
-                    Patched = true;
+
+                    Enabled = true;
+
+                    process.Log("Registering events.");
+                    _eventHandlers = types.Where(type => type != typeof(TCore) && 
+                        !type.IsInterface && !type.IsAbstract && typeof(IModEventHandler).IsAssignableFrom(type))
+                        .Select(type => Activator.CreateInstance(type, true) as IModEventHandler).ToList();
+                    if (Core is IModEventHandler core)
+                    {
+                        _eventHandlers.Add(core);
+                    }
+                    _eventHandlers.Sort((x, y) => x.Priority - y.Priority);
+
+                    process.Log("Raising events: OnEnable()");
+                    for (int i = 0; i < _eventHandlers.Count; i++)
+                    {
+                        _eventHandlers[i].HandleModEnable();
+                    }
+                }
+                catch (Exception e)
+                {
+                    Error(e);
+                    Disable(modEntry, true);
+                    throw;
                 }
 
-                Enabled = true;
-
-                Debug($"[{stopWatch.Elapsed:ss\\.ff}] Registering events.");
-                _eventHandler = _assembly.GetTypes().Where(type =>
-                    !type.IsInterface && !type.IsAbstract &&
-                    type != typeof(TCore) && typeof(IModEventHandler).IsAssignableFrom(type))
-                    .Select(type => Activator.CreateInstance(type, true) as IModEventHandler).ToList();
-
-                Debug($"[{stopWatch.Elapsed:ss\\.ff}] Raising events: 'OnEnable'");
-                if (Core is IModEventHandler core)
-                    core.HandleModEnable();
-                foreach (IModEventHandler handler in _eventHandler)
-                    handler.HandleModEnable();
+                process.Log("Enabled.");
             }
-            catch (Exception e)
-            {
-                Error(e);
-                Disable(modEntry, true);
-                throw e;
-            }
-
-            Debug($"[{stopWatch.Elapsed:ss\\.ff}] Enabled.");
-
-            stopWatch.Stop();
         }
 
         public void Disable(UnityModManager.ModEntry modEntry, bool unpatch = false)
         {
-            Stopwatch stopWatch = new Stopwatch();
-            stopWatch.Start();
-            Debug($"[{stopWatch.Elapsed:ss\\.ff}] Disabling.");
+            _logger = modEntry.Logger;
 
-            Enabled = false;
-
-            // use try-catch to prevent the progression being disrupt by exceptions
-            if (_eventHandler != null)
+            using (ProcessLogger process = new ProcessLogger(_logger))
             {
-                Debug($"[{stopWatch.Elapsed:ss\\.ff}] Raising events: 'OnDisable'");
-                foreach (IModEventHandler handler in _eventHandler)
-                {
-                    try { handler.HandleModDisable(); }
-                    catch (Exception e) { Error(e); }
-                }
-                if (Core is IModEventHandler core)
-                {
-                    try { core.HandleModDisable(); }
-                    catch (Exception e) { Error(e); }
-                }
-                _eventHandler = null;
-            }
+                process.Log("Disabling.");
 
-            if (unpatch)
-            {
-                HarmonyInstance harmonyInstance = HarmonyInstance.Create(modEntry.Info.Id);
-                foreach (MethodBase method in harmonyInstance.GetPatchedMethods().ToList())
+                Enabled = false;
+
+                // use try-catch to prevent the progression being disrupt by exceptions
+                if (_eventHandlers != null)
                 {
-                    Patches patchInfo = harmonyInstance.GetPatchInfo(method);
-                    IEnumerable<Patch> patches = patchInfo.Transpilers.Concat(patchInfo.Postfixes).Concat(patchInfo.Prefixes)
-                        .Where(patch => patch.owner == modEntry.Info.Id);
-                    if (patches.Any())
+                    process.Log("Raising events: OnDisable()");
+                    for (int i = _eventHandlers.Count - 1; i >= 0 ; i--)
                     {
-                        Debug($"[{stopWatch.Elapsed:ss\\.ff}] Unpatching: " +
-                            $"{patches.First().patch.DeclaringType.DeclaringType?.Name}.{method.DeclaringType.Name}.{method.Name}");
-                        foreach (Patch patch in patches)
+                        try { _eventHandlers[i].HandleModDisable(); }
+                        catch (Exception e) { Error(e); }
+                    }
+                    _eventHandlers = null;
+                }
+
+                if (unpatch)
+                {
+                    HarmonyInstance harmonyInstance = HarmonyInstance.Create(modEntry.Info.Id);
+                    foreach (MethodBase method in harmonyInstance.GetPatchedMethods().ToList())
+                    {
+                        Patches patchInfo = harmonyInstance.GetPatchInfo(method);
+                        IEnumerable<Patch> patches = 
+                            patchInfo.Transpilers.Concat(patchInfo.Postfixes).Concat(patchInfo.Prefixes)
+                            .Where(patch => patch.owner == modEntry.Info.Id);
+                        if (patches.Any())
                         {
-                            try { harmonyInstance.Unpatch(method, patch.patch); }
-                            catch (Exception e) { Error(e); }
+                            process.Log($"Unpatching: {patches.First().patch.DeclaringType.DeclaringType?.Name}.{method.DeclaringType.Name}.{method.Name}");
+                            foreach (Patch patch in patches)
+                            {
+                                try { harmonyInstance.Unpatch(method, patch.patch); }
+                                catch (Exception e) { Error(e); }
+                            }
                         }
                     }
+                    Patched = false;
                 }
-                Patched = false;
+
+                modEntry.OnSaveGUI -= HandleSaveGUI;
+                Core = null;
+                Settings = null;
+                Version = null;
+                _logger = null;
+
+                process.Log("Disabled.");
             }
-
-            Core = null;
-
-            modEntry.OnSaveGUI -= HandleSaveGUI;
-            Settings = null;
-
-            Debug($"[{stopWatch.Elapsed:ss\\.ff}] Disabled.");
-
-            stopWatch.Stop();
         }
 
         #endregion
 
-        #region Event Handlers
+        #region Settings
+
+        public void ResetSettings()
+        {
+            if (Enabled)
+            {
+                Settings = new TSettings();
+            }
+        }
 
         private void HandleSaveGUI(UnityModManager.ModEntry modEntry)
         {
@@ -252,5 +249,28 @@ namespace ModMaker
         }
 
         #endregion
+
+        private class ProcessLogger : IDisposable
+        {
+            Stopwatch _stopWatch = new Stopwatch();
+            UnityModManager.ModEntry.ModLogger _logger;
+
+            public ProcessLogger(UnityModManager.ModEntry.ModLogger logger)
+            {
+                _logger = logger;
+                _stopWatch.Start();
+            }
+
+            public void Dispose()
+            {
+                _stopWatch.Stop();
+            }
+
+            [Conditional("DEBUG")]
+            public void Log(string status)
+            {
+                _logger.Log($"[{_stopWatch.Elapsed:ss\\.ff}] {status}");
+            }
+        }
     }
 }

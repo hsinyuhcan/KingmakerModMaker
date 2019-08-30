@@ -269,7 +269,12 @@ namespace ModMaker.Utility
             {
                 if (x == OpCodes.Br || x == OpCodes.Br_S)
                     return y == OpCodes.Br || y == OpCodes.Br_S;
-                return x == y;
+                else if (x == OpCodes.Brtrue || x == OpCodes.Brtrue_S)
+                    return y == OpCodes.Brtrue || y == OpCodes.Brtrue_S;
+                else if (x == OpCodes.Brfalse || x == OpCodes.Brfalse_S)
+                    return y == OpCodes.Brfalse || y == OpCodes.Brfalse_S;
+                else
+                    return x == y;
             }
         }
     }

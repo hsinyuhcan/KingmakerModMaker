@@ -26,8 +26,6 @@ namespace ModMaker
     {
         #region Fields
 
-        private Assembly _assembly;
-
         private int _tabIndex;
         private List<IMenuTopPage> _topPages = new List<IMenuTopPage>();
         private List<IMenuSelectablePage> _selectablePages = new List<IMenuSelectablePage>();
@@ -35,14 +33,9 @@ namespace ModMaker
 
         #endregion
 
-        public MenuManager(UnityModManager.ModEntry modEntry, Assembly assembly)
-        {
-            _assembly = assembly;
-        }
-
         #region Toggle
 
-        public void Enable(UnityModManager.ModEntry modEntry)
+        public void Enable(UnityModManager.ModEntry modEntry, Assembly _assembly)
         {
             foreach (Type type in _assembly.GetTypes()
                 .Where(type => !type.IsInterface && !type.IsAbstract && typeof(IMenuPage).IsAssignableFrom(type)))
@@ -57,9 +50,10 @@ namespace ModMaker
                     _bottomPages.Add(Activator.CreateInstance(type, true) as IMenuBottomPage);
             }
 
-            _topPages.Sort((x, y) => x.Priority - y.Priority);
-            _selectablePages.Sort((x, y) => x.Priority - y.Priority);
-            _bottomPages.Sort((x, y) => x.Priority - y.Priority);
+            int comparison(IMenuPage x, IMenuPage y) => x.Priority - y.Priority;
+            _topPages.Sort(comparison);
+            _selectablePages.Sort(comparison);
+            _bottomPages.Sort(comparison);
 
             modEntry.OnGUI += OnGUI;
         }
