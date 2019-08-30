@@ -31,12 +31,11 @@ namespace ModMaker.Utility
             }
             else
             {
-                string prefix = 
-                    bindingKey.IsCtrlDown ? "Ctrl+" :
-                    bindingKey.IsShiftDown ? "Shift+" :
-                    bindingKey.IsAltDown ? "Alt+" : string.Empty;
-
-                return prefix + bindingKey.Key.ToString();
+                return string.Concat(
+                    bindingKey.IsCtrlDown ? "Ctrl+" : null,
+                    bindingKey.IsAltDown ? "Alt+" : null,
+                    bindingKey.IsShiftDown ? "Shift+" : null,
+                    bindingKey.Key.ToString());
             }
         }
 
@@ -61,9 +60,9 @@ namespace ModMaker.Utility
                 bindingKey = new BindingKeysData()
                 {
                     Key = keyCode,
-                    IsCtrlDown = Input.GetKey(KeyCode.LeftControl),
-                    IsAltDown = Input.GetKey(KeyCode.LeftAlt),
-                    IsShiftDown = Input.GetKey(KeyCode.LeftShift)
+                    IsCtrlDown = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl),
+                    IsAltDown = Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt),
+                    IsShiftDown = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift)
                 };
                 return true;
             }

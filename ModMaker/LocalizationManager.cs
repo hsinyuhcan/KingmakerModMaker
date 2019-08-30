@@ -97,12 +97,22 @@ namespace ModMaker
 
         public string[] GetFileNames(string searchPattern)
         {
-            string[] files = Directory.GetFiles(_localFolderPath, searchPattern);
-            for (int i = 0; i < files.Length; i++)
+            try
             {
-                files[i] = Path.GetFileName(files[i]);
+                if (Directory.Exists(_localFolderPath))
+                {
+                    string[] files = Directory.GetFiles(_localFolderPath, searchPattern);
+                    for (int i = 0; i < files.Length; i++)
+                    {
+                        files[i] = Path.GetFileName(files[i]);
+                    }
+                    return files;
+                }
             }
-            return files;
+            catch
+            {
+            }
+            return new string[0];
         }
 
         public void Reset()
