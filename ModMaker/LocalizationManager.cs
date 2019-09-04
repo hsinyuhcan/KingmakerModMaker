@@ -83,7 +83,8 @@ namespace ModMaker
 
         public void Enable(UnityModManager.ModEntry modEntry)
         {
-            _localFolderPath = modEntry.Path + "Localization\\";
+            char separator = Path.DirectorySeparatorChar;
+            _localFolderPath = modEntry.Path + "Localization" + separator;
             _localDefault = new TDefaultLanguage { Version = modEntry.Version };
         }
 
