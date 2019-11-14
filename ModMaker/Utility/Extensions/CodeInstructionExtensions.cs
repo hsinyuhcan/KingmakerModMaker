@@ -31,7 +31,7 @@ namespace ModMaker.Utility
 
             return codes;
         }
-
+        
         public static IEnumerable<CodeInstruction> AddRange(this IEnumerable<CodeInstruction> codes, 
             IEnumerable<CodeInstruction> newCodes)
         {
@@ -82,12 +82,15 @@ namespace ModMaker.Utility
             int findingCodesCount = findingCodes.Count();
             if (findingCodesCount > 0)
             {
+                int counter = 0;
                 int i = codes.Count() - findingCodesCount;
                 while (i >= 0)
                 {
                     if (codes.MatchCodes(i, findingCodes, comparer))
                     {
-                        codes = codes.ReplaceRange(i, findingCodesCount, newCodes, moveLabelsAtIndex);
+                        codes = codes.ReplaceRange(i, findingCodesCount, (moveLabelsAtIndex && counter++ > 0) ? 
+                            new CodeInstruction[] { newCodes.First().Clone() }.Concat(newCodes.Skip(1)) : newCodes
+                            , moveLabelsAtIndex);
                         i -= findingCodesCount;
                     }
                     else
