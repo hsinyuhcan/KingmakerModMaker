@@ -1,7 +1,9 @@
 ﻿using Harmony12;
+using Harmony12.ILCopying;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Reflection.Emit;
 
 namespace ModMaker.Utility
@@ -31,7 +33,85 @@ namespace ModMaker.Utility
 
             return codes;
         }
-        
+
+        public static IEnumerable<CodeInstruction> Patch<TState>(this IEnumerable<CodeInstruction> codes, ILGenerator il,
+            Func<TState> prefix, Action<TState> postfix)
+        {
+            // TState state = prefix();
+            // try
+            // {
+            //     originalMethod();
+            // }
+            // finally
+            // {
+            //     postfix(state);
+            // }
+
+            LocalBuilder state = il.DeclareLocal(typeof(TState));
+            Label ret = il.DefineLabel();
+
+            return codes
+                .ReplaceAll(new CodeInstruction(OpCodes.Ret), new CodeInstruction(OpCodes.Leave, ret), true)
+                .Concat(new CodeInstruction[] {
+                    //new CodeInstruction(OpCodes.Pop) { blocks = Blocks(ExceptionBlockType.BeginCatchBlock) },
+                    //new CodeInstruction(OpCodes.Rethrow),
+                    new CodeInstruction(OpCodes.Ldloc, state) { blocks = Blocks(ExceptionBlockType.BeginFinallyBlock) },
+                    new CodeInstruction(OpCodes.Call, postfix.Method),
+                    new CodeInstruction(OpCodes.Endfinally) { blocks = Blocks(ExceptionBlockType.EndExceptionBlock) },
+                    new CodeInstruction(OpCodes.Ret) { labels = new List<Label> { ret } }
+                })
+                .InsertRange(0, new CodeInstruction[] {
+                    new CodeInstruction(OpCodes.Call, prefix.Method),
+                    new CodeInstruction(OpCodes.Stloc, state),
+                    new CodeInstruction(OpCodes.Nop) { blocks = Blocks(ExceptionBlockType.BeginExceptionBlock) }
+                }, false);
+
+            List<ExceptionBlock> Blocks(ExceptionBlockType blockType)
+            {
+                return new List<ExceptionBlock> { new ExceptionBlock(blockType, typeof(object)) };
+            }
+        }
+
+        public static IEnumerable<CodeInstruction> Patch<TInstance, TState>(this IEnumerable<CodeInstruction> codes, ILGenerator il,
+            Func<TInstance, TState> prefix, Action<TInstance, TState> postfix)
+        {
+            // TState state = prefix(this);
+            // try
+            // {
+            //     originalMethod();
+            // }
+            // finally
+            // {
+            //     postfix(this, state);
+            // }
+
+            LocalBuilder state = il.DeclareLocal(typeof(TState));
+            Label ret = il.DefineLabel();
+
+            return codes
+                .ReplaceAll(new CodeInstruction(OpCodes.Ret), new CodeInstruction(OpCodes.Leave, ret), true)
+                .Concat(new CodeInstruction[] {
+                    //new CodeInstruction(OpCodes.Pop) { blocks = Blocks(ExceptionBlockType.BeginCatchBlock) },
+                    //new CodeInstruction(OpCodes.Rethrow),
+                    new CodeInstruction(OpCodes.Ldarg_0) { blocks = Blocks(ExceptionBlockType.BeginFinallyBlock) },
+                    new CodeInstruction(OpCodes.Ldloc, state),
+                    new CodeInstruction(OpCodes.Call, postfix.Method),
+                    new CodeInstruction(OpCodes.Endfinally) { blocks = Blocks(ExceptionBlockType.EndExceptionBlock) },
+                    new CodeInstruction(OpCodes.Ret) { labels = new List<Label> { ret } }
+                })
+                .InsertRange(0, new CodeInstruction[] {
+                    new CodeInstruction(OpCodes.Ldarg_0),
+                    new CodeInstruction(OpCodes.Call, prefix.Method),
+                    new CodeInstruction(OpCodes.Stloc, state),
+                    new CodeInstruction(OpCodes.Nop) { blocks = Blocks(ExceptionBlockType.BeginExceptionBlock) }
+                }, false);
+
+            List<ExceptionBlock> Blocks(ExceptionBlockType blockType)
+            {
+                return new List<ExceptionBlock> { new ExceptionBlock(blockType, typeof(object)) };
+            }
+        }
+
         public static IEnumerable<CodeInstruction> AddRange(this IEnumerable<CodeInstruction> codes, 
             IEnumerable<CodeInstruction> newCodes)
         {
