@@ -198,6 +198,8 @@ namespace ModMaker
         public void Error(Exception e)
         {
             _logger.Error($"{e.Message}\n{e.StackTrace}");
+            if (e.InnerException != null)
+                Error(e.InnerException);
         }
 
         public void Error(string str)

@@ -1,4 +1,5 @@
 ﻿using Harmony12;
+using Harmony12.ILCopying;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -8,6 +9,8 @@ namespace ModMaker.Utility
 {
     public static class CodeInstructionExtensions
     {
+        #region Debug
+
         public static IEnumerable<CodeInstruction> Complete(this IEnumerable<CodeInstruction> codes)
         {
             return codes;
@@ -32,6 +35,88 @@ namespace ModMaker.Utility
             return codes;
         }
 
+        #endregion
+
+        #region Preset Logic
+
+        public static IEnumerable<CodeInstruction> Patch<TState>(this IEnumerable<CodeInstruction> codes, ILGenerator il,
+            Func<TState> prefix, Action<TState> postfix)
+        {
+            // TState state = prefix();
+            // try
+            // {
+            //     originalMethod();
+            // }
+            // finally
+            // {
+            //     postfix(state);
+            // }
+
+            LocalBuilder state = il.DeclareLocal(typeof(TState));
+            Label ret = il.DefineLabel();
+
+            return codes
+                .ReplaceAll(new CodeInstruction(OpCodes.Ret), new CodeInstruction(OpCodes.Leave, ret), true)
+                .AddRange(new CodeInstruction[] {
+                    //new CodeInstruction(OpCodes.Pop) { blocks = Blocks(ExceptionBlockType.BeginCatchBlock) },
+                    //new CodeInstruction(OpCodes.Rethrow),
+                    new CodeInstruction(OpCodes.Ldloc, state).BeginFinallyBlock(),
+                    new CodeInstruction(OpCodes.Call, postfix.Method),
+                    new CodeInstruction(OpCodes.Endfinally).EndExceptionBlock(),
+                    new CodeInstruction(OpCodes.Ret).MarkLabel(ret)
+                })
+                .InsertRange(0, new CodeInstruction[] {
+                    new CodeInstruction(OpCodes.Call, prefix.Method),
+                    new CodeInstruction(OpCodes.Stloc, state),
+                    new CodeInstruction(OpCodes.Nop).BeginExceptionBlock()
+                }, false);
+        }
+
+        public static IEnumerable<CodeInstruction> Patch<TInstance, TState>(this IEnumerable<CodeInstruction> codes, ILGenerator il,
+            Func<TInstance, TState> prefix, Action<TInstance, TState> postfix)
+        {
+            // TState state = prefix(this);
+            // try
+            // {
+            //     originalMethod();
+            // }
+            // finally
+            // {
+            //     postfix(this, state);
+            // }
+
+            LocalBuilder state = il.DeclareLocal(typeof(TState));
+            Label ret = il.DefineLabel();
+
+            return codes
+                .ReplaceAll(new CodeInstruction(OpCodes.Ret), new CodeInstruction(OpCodes.Leave, ret), true)
+                .AddRange(new CodeInstruction[] {
+                    //new CodeInstruction(OpCodes.Pop) { blocks = Blocks(ExceptionBlockType.BeginCatchBlock) },
+                    //new CodeInstruction(OpCodes.Rethrow),
+                    new CodeInstruction(OpCodes.Ldarg_0).BeginFinallyBlock(),
+                    new CodeInstruction(OpCodes.Ldloc, state),
+                    new CodeInstruction(OpCodes.Call, postfix.Method),
+                    new CodeInstruction(OpCodes.Endfinally).EndExceptionBlock(),
+                    new CodeInstruction(OpCodes.Ret).MarkLabel(ret)
+                })
+                .InsertRange(0, new CodeInstruction[] {
+                    new CodeInstruction(OpCodes.Ldarg_0),
+                    new CodeInstruction(OpCodes.Call, prefix.Method),
+                    new CodeInstruction(OpCodes.Stloc, state),
+                    new CodeInstruction(OpCodes.Nop).BeginExceptionBlock()
+                }, false);
+        }
+
+        #endregion
+
+        #region Collection Modifying
+
+        public static IEnumerable<CodeInstruction> Add(this IEnumerable<CodeInstruction> codes,
+            CodeInstruction newCode)
+        {
+            return codes.Concat(new CodeInstruction[] { newCode });
+        }
+
         public static IEnumerable<CodeInstruction> AddRange(this IEnumerable<CodeInstruction> codes, 
             IEnumerable<CodeInstruction> newCodes)
         {
@@ -45,41 +130,71 @@ namespace ModMaker.Utility
         }
 
         public static IEnumerable<CodeInstruction> InsertRange(this IEnumerable<CodeInstruction> codes, 
-            int index, IEnumerable<CodeInstruction> newCodes, bool moveLabelsAtIndex = false)
+            int index, IEnumerable<CodeInstruction> newCodes, bool moveLabelsFromIndex = false)
         {
-            if (moveLabelsAtIndex)
+            if (moveLabelsFromIndex)
                 codes.MoveLabels(index, newCodes, 0, newCodes.Where(code => code.operand is Label).Select(code => (Label)code.operand));
             return codes.Take(index).Concat(newCodes).Concat(codes.Skip(index));
         }
 
-        public static IEnumerable<CodeInstruction> RemoveRange(this IEnumerable<CodeInstruction> codes, 
-            int index, int count, bool moveLabelsAtIndex = false)
+        public static IEnumerable<CodeInstruction> Remove(this IEnumerable<CodeInstruction> codes,
+            int index, bool moveLabelsFromIndex = false)
         {
-            if (moveLabelsAtIndex)
+            return codes.RemoveRange(index, 1, moveLabelsFromIndex);
+        }
+
+        public static IEnumerable<CodeInstruction> RemoveRange(this IEnumerable<CodeInstruction> codes, 
+            int index, int count, bool moveLabelsFromIndex = false)
+        {
+            if (moveLabelsFromIndex)
                 codes.MoveLabels(index, codes, index + count);
             return codes.Take(index).Concat(codes.Skip(index + count));
         }
 
         public static IEnumerable<CodeInstruction> Replace(this IEnumerable<CodeInstruction> codes, 
-            int index, CodeInstruction newCode, bool moveLabelsAtIndex = false)
+            int index, CodeInstruction newCode, bool moveLabelsFromIndex = false)
         {
-            return codes.ReplaceRange(index, 1, new CodeInstruction[] { newCode }, moveLabelsAtIndex);
+            return codes.ReplaceRange(index, 1, new CodeInstruction[] { newCode }, moveLabelsFromIndex);
+        }
+
+        public static IEnumerable<CodeInstruction> ReplaceRange(this IEnumerable<CodeInstruction> codes,
+            int index, int count, IEnumerable<CodeInstruction> newCodes, bool moveLabelsFromIndex = false)
+        {
+            if (moveLabelsFromIndex)
+                codes.MoveLabels(index, newCodes, 0, newCodes.Where(code => code.operand is Label).Select(code => (Label)code.operand));
+            return codes.Take(index).Concat(newCodes).Concat(codes.Skip(index + count));
         }
 
         public static IEnumerable<CodeInstruction> ReplaceAll(this IEnumerable<CodeInstruction> codes,
             CodeInstruction findingCode, CodeInstruction newCode,
-            bool moveLabelsAtIndex = false, IEqualityComparer<CodeInstruction> comparer = null)
+            bool moveLabelsFromIndex = false, IEqualityComparer<CodeInstruction> comparer = null)
         {
-            return codes.ReplaceAll(new CodeInstruction[] { findingCode }, new CodeInstruction[] { newCode }, moveLabelsAtIndex, comparer);
+            return codes.ReplaceAll(findingCode, newCode, out int replaced, moveLabelsFromIndex, comparer);
+        }
+
+        public static IEnumerable<CodeInstruction> ReplaceAll(this IEnumerable<CodeInstruction> codes,
+            CodeInstruction findingCode, CodeInstruction newCode,
+            out int replaced, bool moveLabelsFromIndex = false, IEqualityComparer<CodeInstruction> comparer = null)
+        {
+            return codes.ReplaceAll(new CodeInstruction[] { findingCode }, new CodeInstruction[] { newCode }, out replaced, moveLabelsFromIndex, comparer);
+        }
+
+        public static IEnumerable<CodeInstruction> ReplaceAll(this IEnumerable<CodeInstruction> codes,
+            IEnumerable<CodeInstruction> findingCodes, IEnumerable<CodeInstruction> newCodes,
+            bool moveLabelsFromIndex = false, IEqualityComparer<CodeInstruction> comparer = null)
+        {
+            return codes.ReplaceAll(findingCodes, newCodes, out int replaced, moveLabelsFromIndex, comparer);
         }
 
         public static IEnumerable<CodeInstruction> ReplaceAll(this IEnumerable<CodeInstruction> codes, 
             IEnumerable<CodeInstruction> findingCodes, IEnumerable<CodeInstruction> newCodes, 
-            bool moveLabelsAtIndex = false, IEqualityComparer<CodeInstruction> comparer = null)
+            out int replaced, bool moveLabelsFromIndex = false, IEqualityComparer<CodeInstruction> comparer = null)
         {
+            replaced = 0;
             if (comparer == null)
                 comparer = new CodeInstructionMatchComparer();
             int findingCodesCount = findingCodes.Count();
+            int newCodesCount = newCodes.Count();
             if (findingCodesCount > 0)
             {
                 int i = codes.Count() - findingCodesCount;
@@ -87,7 +202,12 @@ namespace ModMaker.Utility
                 {
                     if (codes.MatchCodes(i, findingCodes, comparer))
                     {
-                        codes = codes.ReplaceRange(i, findingCodesCount, newCodes, moveLabelsAtIndex);
+                        codes = (newCodesCount > 0) ?
+                            codes.ReplaceRange(i, findingCodesCount, (moveLabelsFromIndex && replaced > 0) ?
+                                new CodeInstruction[] { newCodes.First().Clone() }.Concat(newCodes.Skip(1)) : newCodes, 
+                                moveLabelsFromIndex):
+                            codes.RemoveRange(i, findingCodesCount, moveLabelsFromIndex);
+                        replaced++;
                         i -= findingCodesCount;
                     }
                     else
@@ -99,51 +219,44 @@ namespace ModMaker.Utility
             return codes;
         }
 
-        public static IEnumerable<CodeInstruction> ReplaceRange(this IEnumerable<CodeInstruction> codes, 
-            int index, int count, IEnumerable<CodeInstruction> newCodes, bool moveLabelsAtIndex = false)
-        {
-            if (moveLabelsAtIndex)
-                codes.MoveLabels(index, newCodes, 0, newCodes.Where(code => code.operand is Label).Select(code => (Label)code.operand));
-            return codes.Take(index).Concat(newCodes).Concat(codes.Skip(index + count));
-        }
+        #endregion 
 
         public static CodeInstruction Item(this IEnumerable<CodeInstruction> codes, int index)
         {
             return codes.ElementAt(index);
         }
 
-        public static Label NewLabel(this IEnumerable<CodeInstruction> codes, int index, ILGenerator il)
+        #region Label
+
+        public static Label NewLabel(this CodeInstruction code, ILGenerator il)
         {
             Label label = il.DefineLabel();
-            codes.MarkLabel(index, label);
+            code.MarkLabel(label);
             return label;
         }
 
-        public static void MarkLabel(this IEnumerable<CodeInstruction> codes, int index, Label newLabel)
+        public static Label NewLabel(this IEnumerable<CodeInstruction> codes, int index, ILGenerator il)
         {
-            codes.Item(index).labels.MarkLabel(newLabel);
+            return codes.Item(index).NewLabel(il);
         }
 
-        public static void MarkLabels(this IEnumerable<CodeInstruction> codes, int index, IEnumerable<Label> newLabels)
+        public static CodeInstruction MarkLabel(this CodeInstruction code, Label newLabel)
         {
-            codes.Item(index).labels.MarkLabels(newLabels);
+            code.labels.Add(newLabel);
+            return code;
         }
 
-        private static void MarkLabel(this List<Label> labels, Label newLabel)
+        public static CodeInstruction MarkLabel(this CodeInstruction code, IEnumerable<Label> newLabel)
         {
-            labels.Add(newLabel);
-        }
-
-        private static void MarkLabels(this List<Label> labels, IEnumerable<Label> newLabel)
-        {
-            labels.AddRange(newLabel);
+            code.labels.AddRange(newLabel);
+            return code;
         }
 
         public static void MoveLabels(this IEnumerable<CodeInstruction> codes, 
             int index, IEnumerable<CodeInstruction> targetCodes, int targetIndex)
         {
             List<Label> labels = codes.Item(index).labels;
-            targetCodes.MarkLabels(targetIndex, labels);
+            targetCodes.Item(targetIndex).MarkLabel(labels);
             labels.Clear();
         }
 
@@ -162,7 +275,7 @@ namespace ModMaker.Utility
                 }
                 else
                 {
-                    target.MarkLabel(source[i]);
+                    target.Add(source[i]);
                     source.RemoveAt(i);
                 }
             }
@@ -173,11 +286,43 @@ namespace ModMaker.Utility
             codes.Item(index).labels.RemoveAll(item => item == label);
         }
 
-        public static void RemoveLabels(this IEnumerable<CodeInstruction> codes, int index, IEnumerable<Label> labels)
+        public static void RemoveLabel(this IEnumerable<CodeInstruction> codes, int index, IEnumerable<Label> labels)
         {
             labels = new HashSet<Label>(labels);
             codes.Item(index).labels.RemoveAll(item => labels.Contains(item));
         }
+
+        #endregion
+
+        #region Exception Block
+
+        public static CodeInstruction BeginCatchBlock(this CodeInstruction code, Type catchType = null)
+        {
+            code.blocks.Add(new ExceptionBlock(ExceptionBlockType.BeginCatchBlock, catchType ?? typeof(object)));
+            return code;
+        }
+
+        public static CodeInstruction BeginExceptionBlock(this CodeInstruction code, Type catchType = null)
+        {
+            code.blocks.Add(new ExceptionBlock(ExceptionBlockType.BeginExceptionBlock, catchType ?? typeof(object)));
+            return code;
+        }
+
+        public static CodeInstruction BeginFinallyBlock(this CodeInstruction code, Type catchType = null)
+        {
+            code.blocks.Add(new ExceptionBlock(ExceptionBlockType.BeginFinallyBlock, catchType ?? typeof(object)));
+            return code;
+        }
+
+        public static CodeInstruction EndExceptionBlock(this CodeInstruction code, Type catchType = null)
+        {
+            code.blocks.Add(new ExceptionBlock(ExceptionBlockType.EndExceptionBlock, catchType ?? typeof(object)));
+            return code;
+        }
+
+        #endregion
+
+        #region Collection Searching
 
         public static int FindCodes(this IEnumerable<CodeInstruction> codes, IEnumerable<CodeInstruction> findingCodes)
         {
@@ -277,5 +422,7 @@ namespace ModMaker.Utility
                     return x == y;
             }
         }
+
+        #endregion 
     }
 }
