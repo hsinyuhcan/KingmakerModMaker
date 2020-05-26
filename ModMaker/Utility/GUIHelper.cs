@@ -8,8 +8,8 @@ namespace ModMaker.Utility
 {
     public static class GUIHelper
     {
-        public static string FormatOn = "◑".Color(RGBA.lime) + " - {0}";
-        public static string FormatOff = "◐".Color(RGBA.red) + " - {0}";
+        public static string FormatOn = "Y".Color(RGBA.lime) + " - {0}";
+        public static string FormatOff = "N".Color(RGBA.red) + " - {0}";
 
         public static string GetToggleText(bool toggle, string text)
         {
